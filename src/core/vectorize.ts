@@ -1,7 +1,7 @@
 import { toHex, type RGB } from './color';
 import { despeckle, removeBackground } from './despeckle';
 import { blur, downscale, opaqueMask, upscale } from './image';
-import { dilationLists, labelComponents, labelMask } from './layers';
+import { dilationLists, labelComponents } from './layers';
 import { appendContour, PathBuilder } from './path';
 import { quantize, TRANSPARENT } from './quantize';
 import { polygonize } from './simplify';
@@ -98,8 +98,8 @@ export function prepare(image: RasterImage, options: Partial<VectorizeOptions> =
 
 interface Shape {
   color: number;
-  top: number;
-  left: number;
+  /** Label of the region the shape stems from: the painting order. */
+  label: number;
   outer: Contour;
   holes: Contour[];
 }
@@ -147,14 +147,15 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
   } else {
     // Stacked: every connected region is painted as its outer outline with the
     // holes filled, parents before the shapes they enclose, each shape dilated
-    // by one pixel into the shapes painted after it. Holes that contain
-    // transparent pixels are kept so transparency survives.
+    // into the shapes painted after it. Holes that contain transparent pixels
+    // are kept so transparency survives.
     progress('label', 0.35);
     const { labels } = labelComponents(index, width, height);
     const dil = dilationLists(index, labels, width, height, k, Math.max(0, Math.round(o.overlap * scale)));
     let hasTransparent = false;
     for (let i = 0; i < n && !hasTransparent; i++) hasTransparent = index[i] === TRANSPARENT;
-    const maskLabels = hasTransparent ? new Int32Array(n) : null;
+    // For borrowed pixels: the label of the region they were borrowed for.
+    const sourceOf = new Int32Array(n);
     const stack = new Int32Array(n);
     const stamp = hasTransparent ? new Int32Array(n) : null;
     let gen = 0;
@@ -186,30 +187,35 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
       progress('trace', 0.4 + (0.5 * r) / colors.length);
       const idx = colors[r];
       for (let i = 0; i < n; i++) mask[i] = index[i] === idx ? 1 : 0;
-      for (let i = dil.offsets[idx]; i < dil.offsets[idx + 1]; i++) mask[dil.pixels[i]] = 1;
+      for (let i = dil.offsets[idx]; i < dil.offsets[idx + 1]; i++) {
+        const p = dil.pixels[i];
+        mask[p] = 1;
+        sourceOf[p] = dil.sources[i];
+      }
+      // Every pixel of the mask belongs to exactly one region of this color
+      // (borrowing never merges two of them), so contours group by that label.
+      // A stray blob of borrowed pixels cut off by the no-merge rule is still
+      // painted at its region's turn and thus covered by the shapes above it.
+      const labelOf = (p: number): number => (index[p] === idx ? labels[p] : sourceOf[p]);
       const contours = traceMask(mask, width, height);
-      if (maskLabels) {
-        labelMask(mask, width, height, maskLabels, stack);
-        const byLabel = new Map<number, Shape>();
-        for (const c of contours) {
-          if (c.hole) continue;
-          const s: Shape = { color: idx, top: c.points[1], left: c.points[0], outer: c, holes: [] };
-          byLabel.set(maskLabels[c.inside], s);
-          shapes.push(s);
-        }
+      const byLabel = new Map<number, Shape>();
+      for (const c of contours) {
+        if (c.hole) continue;
+        const label = labelOf(c.inside);
+        const s: Shape = { color: idx, label, outer: c, holes: [] };
+        if (!byLabel.has(label)) byLabel.set(label, s);
+        shapes.push(s);
+      }
+      if (hasTransparent) {
         for (const c of contours) {
           if (!c.hole || !holeHasTransparent(c)) continue;
-          byLabel.get(maskLabels[c.inside])?.holes.push(c);
-        }
-      } else {
-        for (const c of contours) {
-          if (!c.hole) shapes.push({ color: idx, top: c.points[1], left: c.points[0], outer: c, holes: [] });
+          byLabel.get(labelOf(c.inside))?.holes.push(c);
         }
       }
     }
 
     progress('assemble', 0.9);
-    shapes.sort((a, b) => a.top - b.top || a.left - b.left);
+    shapes.sort((a, b) => a.label - b.label);
     let pb: PathBuilder | null = null;
     let current = -1;
     for (const s of shapes) {

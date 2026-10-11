@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PathBuilder } from '../src/core/path';
 import { vectorize } from '../src/core/vectorize';
+import { mulberry32 } from '../src/core/quantize';
 import type { RasterImage } from '../src/core/types';
 
 function sample(): RasterImage {
@@ -148,5 +149,63 @@ describe('overlap', () => {
     expect(Math.max(...xs(0))).toBe(20);
     expect(Math.max(...xs(1))).toBe(21);
     expect(Math.max(...xs(4))).toBe(24);
+  });
+});
+
+describe('stacked painting order', () => {
+  /** Paints an exact-mode (lines only) SVG the way a renderer would: paths in order, evenodd, sampled at pixel centres. */
+  function rasterize(svg: string, w: number, h: number): string[] {
+    const out = new Array<string>(w * h).fill('');
+    for (const m of svg.matchAll(/<path fill="(#[0-9a-f]{6})" d="([^"]+)"/g)) {
+      const polys: number[][] = [];
+      for (const sub of m[2].split('M').filter(Boolean)) polys.push((sub.match(/-?\d+\.?\d*/g) ?? []).map(Number));
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const px = x + 0.5, py = y + 0.5;
+          let crossings = 0;
+          for (const p of polys) {
+            for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+              const x0 = p[j], y0 = p[j + 1], x1 = p[i], y1 = p[i + 1];
+              if (y0 > py !== y1 > py && px < x0 + ((py - y0) * (x1 - x0)) / (y1 - y0)) crossings++;
+            }
+          }
+          if (crossings % 2 === 1) out[y * w + x] = m[1];
+        }
+      }
+    }
+    return out;
+  }
+
+  it('reproduces the quantized image exactly for any overlap', () => {
+    const w = 48, h = 48;
+    const data = new Uint8ClampedArray(w * h * 4);
+    const rand = mulberry32(11);
+    const colors = [
+      [255, 255, 255],
+      [200, 30, 30],
+      [30, 60, 200],
+      [30, 160, 60],
+    ];
+    // Random mosaic of small tiles plus a few single-pixel specks.
+    const tiles: number[][] = [];
+    for (let ty = 0; ty < 6; ty++) for (let tx = 0; tx < 6; tx++) tiles.push(colors[Math.floor(rand() * 4)]);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        let c = tiles[Math.floor(y / 8) * 6 + Math.floor(x / 8)];
+        if (rand() < 0.03) c = colors[Math.floor(rand() * 4)];
+        const p = (y * w + x) * 4;
+        data.set([c[0], c[1], c[2], 255], p);
+      }
+    const img = { data, width: w, height: h };
+    const expected = vectorize(img, { colors: 4, minArea: 0, simplify: 0, smoothing: 0, upscale: 1, overlap: 0, precision: 0, layering: 'cutout' });
+    const truth = rasterize(expected.svg, w, h);
+    expect(truth.every((c) => c !== '')).toBe(true);
+    for (const overlap of [0, 2, 6]) {
+      const res = vectorize(img, { colors: 4, minArea: 0, simplify: 0, smoothing: 0, upscale: 1, overlap, precision: 0 });
+      const painted = rasterize(res.svg, w, h);
+      let wrong = 0;
+      for (let i = 0; i < truth.length; i++) if (painted[i] !== truth[i]) wrong++;
+      expect(wrong, `overlap ${overlap}`).toBe(0);
+    }
   });
 });
