@@ -8,11 +8,11 @@ const STAGE_MARGIN = 24;
 const HARD_MAX_INPUT = 4096;
 
 const PRESETS: Record<string, Partial<VectorizeOptions>> = {
-  logo: { mode: 'auto', colors: 8, blur: 0, minArea: 8, simplify: 0.5, smoothing: 0.5, cornerThreshold: 45, layering: 'stacked' },
-  photo: { mode: 'auto', colors: 24, blur: 1, minArea: 24, simplify: 1, smoothing: 1, cornerThreshold: 80, layering: 'stacked' },
-  sketch: { mode: 'grayscale', colors: 6, blur: 1, minArea: 12, simplify: 0.8, smoothing: 0.8, cornerThreshold: 60, layering: 'stacked' },
-  lineart: { mode: 'bw', threshold: 128, blur: 0, minArea: 4, simplify: 0.5, smoothing: 0.5, cornerThreshold: 50, layering: 'stacked' },
-  pixel: { mode: 'auto', colors: 32, blur: 0, minArea: 0, simplify: 0, smoothing: 0, maxSize: 0, precision: 0, layering: 'stacked' },
+  logo: { mode: 'auto', colors: 8, blur: 0, minArea: 8, simplify: 0.5, smoothing: 0.5, cornerThreshold: 45, upscale: 0, layering: 'stacked' },
+  photo: { mode: 'auto', colors: 24, blur: 1, minArea: 24, simplify: 1, smoothing: 1, cornerThreshold: 80, upscale: 1, layering: 'stacked' },
+  sketch: { mode: 'grayscale', colors: 6, blur: 1, minArea: 12, simplify: 0.8, smoothing: 0.8, cornerThreshold: 60, upscale: 0, layering: 'stacked' },
+  lineart: { mode: 'bw', threshold: 128, blur: 0, minArea: 4, simplify: 0.5, smoothing: 0.5, cornerThreshold: 50, upscale: 0, layering: 'stacked' },
+  pixel: { mode: 'auto', colors: 32, blur: 0, minArea: 0, simplify: 0, smoothing: 0, maxSize: 0, precision: 0, upscale: 1, layering: 'stacked' },
 };
 
 type View = 'vector' | 'split' | 'original';
@@ -108,7 +108,7 @@ function writeControls(): void {
   for (const out of document.querySelectorAll<HTMLOutputElement>('[data-out]')) {
     const key = out.dataset.out as keyof VectorizeOptions;
     const v = o[key];
-    out.textContent = key === 'maxSize' && v === 0 ? 'original' : String(v);
+    out.textContent = key === 'maxSize' && v === 0 ? 'original' : key === 'upscale' ? (v === 0 ? 'auto' : `${v}×`) : String(v);
   }
   for (const el of document.querySelectorAll<HTMLElement>('[data-show-mode]')) {
     el.hidden = !el.dataset.showMode!.split(' ').includes(options.mode);
@@ -277,7 +277,8 @@ function onResult(res: VectorizeResult): void {
   const ms = Object.values(res.timings).reduce((a, b) => a + b, 0);
   const kb = new Blob([res.svg]).size / 1024;
   const colors = res.palette.filter((p) => !p.hidden).length;
-  statsEl.textContent = `${res.width}×${res.height} · ${colors} colors · ${res.paths} shapes · ${res.points.toLocaleString()} points · ${kb.toFixed(1)} KB · ${ms.toFixed(0)} ms`;
+  const traced = res.scale > 1 ? ` (traced at ${res.scale}×)` : '';
+  statsEl.textContent = `${res.width}×${res.height}${traced} · ${colors} colors · ${res.paths} shapes · ${res.points.toLocaleString()} points · ${kb.toFixed(1)} KB · ${ms.toFixed(0)} ms`;
   btnDownload.disabled = false;
   btnCopy.disabled = false;
   statsEl.dataset.runs = String(Number(statsEl.dataset.runs ?? 0) + 1);

@@ -85,54 +85,92 @@ export function quantize(img: RasterImage, opaque: Uint8Array, opts: QuantizeOpt
 
   if (fixedPalette) return { palette: fixedPalette, index, counts };
 
-  // Anti-aliasing produces thin slivers of intermediate colors along every
-  // edge; k-means happily spends clusters on them. Dissolve such clusters.
-  for (let round = 0; round < 3; round++) {
-    const dissolved = findFringeClusters(index, img.width, img.height, centroids, k, counts);
-    if (dissolved.length === 0) break;
-    const keepMask = new Uint8Array(k).fill(1);
-    for (const c of dissolved) keepMask[c] = 0;
-    // Compact the surviving centroids and remap indices.
-    const remap = new Uint8Array(k).fill(TRANSPARENT);
-    const next = new Float32Array(k * 3);
-    let kk = 0;
-    for (let j = 0; j < k; j++) {
-      if (!keepMask[j]) continue;
-      remap[j] = kk;
-      next[kk * 3] = centroids[j * 3];
-      next[kk * 3 + 1] = centroids[j * 3 + 1];
-      next[kk * 3 + 2] = centroids[j * 3 + 2];
-      kk++;
+  // Anti-aliasing produces slivers of intermediate colors along every edge.
+  // First re-assign individual pixels that sit spatially between the two
+  // colors they are a mix of (a color can be real in one place and a mix
+  // elsewhere: grey text next to black text on white). Clusters that lose
+  // most of their pixels this way were nothing but fringe and are dissolved.
+  const originalCounts = counts.slice();
+  let pairA: Int32Array<ArrayBufferLike> = new Int32Array(k).fill(-1);
+  for (let round = 0; round < 4; round++) {
+    const found = findFringeClusters(index, img.width, img.height, centroids, k);
+    pairA = found.pairA;
+    if (found.fringePixels.length === 0) break;
+    const lab = new Float32Array(3);
+    let changed = 0;
+    for (const i of found.fringePixels) {
+      const c = index[i];
+      const a = found.pairA[c], b = found.pairB[c];
+      const p = i * 4;
+      let r = data[p], g = data[p + 1], bl = data[p + 2];
+      if (gray) r = g = bl = Math.round(luminance(r, g, bl));
+      rgbToLab(r, g, bl, lab, 0);
+      const to = dist2(centroids, a, lab) <= dist2(centroids, b, lab) ? a : b;
+      if (to !== c) {
+        index[i] = to;
+        changed++;
+      }
     }
-    for (let i = 0; i < n; i++) {
-      const v = index[i];
-      if (v === TRANSPARENT) continue;
-      index[i] = keepMask[v] ? remap[v] : TRANSPARENT;
-    }
-    const was = opaque;
-    // Only the pixels of dissolved clusters need re-assigning; mark them.
-    const todo = new Uint8Array(n);
-    for (let i = 0; i < n; i++) todo[i] = was[i] && index[i] === TRANSPARENT ? 1 : 0;
-    centroids = next.subarray(0, kk * 3);
-    k = kk;
-    assignPixels(img, todo, gray, centroids, k, index);
+    if (changed === 0) break;
     const again = tally(img, opaque, gray, index, k);
     counts = again.counts;
     sums = again.sums;
   }
+  {
+    const keepMask = new Uint8Array(k).fill(1);
+    let dissolved = 0;
+    for (let c = 0; c < k; c++) {
+      if (pairA[c] >= 0 && counts[c] < FRINGE_SURVIVAL * originalCounts[c]) {
+        keepMask[c] = 0;
+        dissolved++;
+      }
+    }
+    if (dissolved > 0 && dissolved < k) {
+      const remap = new Uint8Array(k).fill(TRANSPARENT);
+      const next = new Float32Array(k * 3);
+      let kk = 0;
+      for (let j = 0; j < k; j++) {
+        if (!keepMask[j]) continue;
+        remap[j] = kk;
+        next[kk * 3] = centroids[j * 3];
+        next[kk * 3 + 1] = centroids[j * 3 + 1];
+        next[kk * 3 + 2] = centroids[j * 3 + 2];
+        kk++;
+      }
+      const todo = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        const v = index[i];
+        if (v === TRANSPARENT) continue;
+        if (keepMask[v]) index[i] = remap[v];
+        else {
+          index[i] = TRANSPARENT;
+          todo[i] = 1;
+        }
+      }
+      centroids = next.subarray(0, kk * 3);
+      k = kk;
+      assignPixels(img, todo, gray, centroids, k, index);
+      const again = tally(img, opaque, gray, index, k);
+      counts = again.counts;
+      sums = again.sums;
+    }
+  }
 
-  // Palette = mean sRGB of each cluster's members; drop clusters that ended up empty.
+  // Palette = mean sRGB of each cluster's interior pixels (edge pixels carry
+  // anti-aliasing mixes that would tint a solid color); clusters without any
+  // interior pixel fall back to the mean of all their pixels. Drop clusters
+  // that ended up empty.
+  const interior = interiorSums(img, opaque, gray, index, k);
   const remap = new Uint8Array(k).fill(TRANSPARENT);
   const palette: RGB[] = [];
   const outCounts: number[] = [];
   for (let j = 0; j < k; j++) {
     if (counts[j] === 0) continue;
     remap[j] = palette.length;
-    palette.push([
-      Math.round(sums[j * 3] / counts[j]),
-      Math.round(sums[j * 3 + 1] / counts[j]),
-      Math.round(sums[j * 3 + 2] / counts[j]),
-    ]);
+    const useInterior = interior.counts[j] > 0;
+    const src = useInterior ? interior.sums : sums;
+    const cnt = useInterior ? interior.counts[j] : counts[j];
+    palette.push([Math.round(src[j * 3] / cnt), Math.round(src[j * 3 + 1] / cnt), Math.round(src[j * 3 + 2] / cnt)]);
     outCounts.push(counts[j]);
   }
   if (palette.length !== k) {
@@ -186,6 +224,35 @@ function assignPixels(
   return { counts, sums };
 }
 
+/** Sums over pixels whose four neighbours share their cluster (or lie outside the image). */
+function interiorSums(img: RasterImage, opaque: Uint8Array, gray: boolean, index: Uint8Array, k: number): { counts: Int32Array; sums: Float64Array } {
+  const { width: w, height: h, data } = img;
+  const sums = new Float64Array(k * 3);
+  const counts = new Int32Array(k);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!opaque[i]) continue;
+      const idx = index[i];
+      if (
+        (x > 0 && index[i - 1] !== idx) ||
+        (x < w - 1 && index[i + 1] !== idx) ||
+        (y > 0 && index[i - w] !== idx) ||
+        (y < h - 1 && index[i + w] !== idx)
+      )
+        continue;
+      const p = i * 4;
+      let r = data[p], g = data[p + 1], b = data[p + 2];
+      if (gray) r = g = b = Math.round(luminance(r, g, b));
+      counts[idx]++;
+      sums[idx * 3] += r;
+      sums[idx * 3 + 1] += g;
+      sums[idx * 3 + 2] += b;
+    }
+  }
+  return { counts, sums };
+}
+
 function tally(img: RasterImage, opaque: Uint8Array, gray: boolean, index: Uint8Array, k: number): { counts: Int32Array; sums: Float64Array } {
   const n = img.width * img.height;
   const data = img.data;
@@ -204,10 +271,20 @@ function tally(img: RasterImage, opaque: Uint8Array, gray: boolean, index: Uint8
   return { counts, sums };
 }
 
+function dist2(centroids: Float32Array, j: number, lab: Float32Array): number {
+  const dl = centroids[j * 3] - lab[0], da = centroids[j * 3 + 1] - lab[1], db = centroids[j * 3 + 2] - lab[2];
+  return dl * dl + da * da + db * db;
+}
+
+/** Neighbourhood radius for the fringe test; anti-aliasing bands are up to ~2 px wide once upscaled. */
+const FRINGE_RADIUS = 2;
+/** A candidate cluster keeping fewer than this fraction of its pixels after fringe removal was pure fringe. */
+const FRINGE_SURVIVAL = 0.25;
+
 /**
- * Finds clusters that are anti-aliasing artifacts: their color lies on the
- * line between two other clusters A and B, and most of their pixels sit
- * spatially between an A-ish and a B-ish neighbour. Returns their indices.
+ * Finds anti-aliasing artifacts. A cluster whose color lies on the line
+ * between two other clusters A and B is a candidate; each of its pixels that
+ * sits spatially between an A-ish and a B-ish neighbour is a fringe pixel.
  */
 function findFringeClusters(
   index: Uint8Array,
@@ -215,22 +292,21 @@ function findFringeClusters(
   h: number,
   centroids: Float32Array,
   k: number,
-  counts: Int32Array,
-): number[] {
-  if (k < 3) return [];
-  const n = w * h;
-  // For every cluster, the pair (A, B) it most plausibly is a mix of.
+): { fringePixels: number[]; pairA: Int32Array; pairB: Int32Array } {
   const pairA = new Int32Array(k).fill(-1);
   const pairB = new Int32Array(k).fill(-1);
+  const none = { fringePixels: [], pairA, pairB };
+  if (k < 3) return none;
+  const n = w * h;
+  // For every cluster, the pair (A, B) it most plausibly is a mix of.
   const tOf = new Float32Array(k * k); // tOf[c * k + x]: position of cluster x along c's A-B axis
   for (let c = 0; c < k; c++) {
-    if (counts[c] === 0) continue;
     const cl = centroids[c * 3], ca = centroids[c * 3 + 1], cb = centroids[c * 3 + 2];
     let best = Infinity;
     for (let a = 0; a < k; a++) {
-      if (a === c || counts[a] === 0) continue;
+      if (a === c) continue;
       for (let b = a + 1; b < k; b++) {
-        if (b === c || counts[b] === 0) continue;
+        if (b === c) continue;
         const dx = centroids[b * 3] - centroids[a * 3];
         const dy = centroids[b * 3 + 1] - centroids[a * 3 + 1];
         const dz = centroids[b * 3 + 2] - centroids[a * 3 + 2];
@@ -267,15 +343,16 @@ function findFringeClusters(
     }
   }
 
-  const fringe = new Int32Array(k);
+  const fringePixels: number[] = [];
+  const R = FRINGE_RADIUS;
   for (let p = 0; p < n; p++) {
     const c = index[p];
     if (c === TRANSPARENT || pairA[c] < 0) continue;
     const tc = tOf[c * k + c];
     const x = p % w;
     const y = (p - x) / w;
-    const x0 = x > 0 ? x - 1 : 0, x1 = x < w - 1 ? x + 1 : w - 1;
-    const y0 = y > 0 ? y - 1 : 0, y1 = y < h - 1 ? y + 1 : h - 1;
+    const x0 = x > R ? x - R : 0, x1 = x < w - 1 - R ? x + R : w - 1;
+    const y0 = y > R ? y - R : 0, y1 = y < h - 1 - R ? y + R : h - 1;
     let lo = false, hi = false;
     for (let yy = y0; yy <= y1 && !(lo && hi); yy++) {
       for (let xx = x0; xx <= x1; xx++) {
@@ -286,12 +363,9 @@ function findFringeClusters(
         else if (t > tc + 0.2) hi = true;
       }
     }
-    if (lo && hi) fringe[c]++;
+    if (lo && hi) fringePixels.push(p);
   }
-
-  const out: number[] = [];
-  for (let c = 0; c < k; c++) if (pairA[c] >= 0 && fringe[c] >= 0.5 * counts[c]) out.push(c);
-  return out;
+  return { fringePixels, pairA, pairB };
 }
 
 function nearest(centroids: Float32Array, k: number, L: number, a: number, b: number): number {

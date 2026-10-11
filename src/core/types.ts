@@ -16,6 +16,12 @@ export interface VectorizeOptions {
   maxSize: number;
   /** Pre-blur radius in pixels (0 = off). Helps with JPEG noise and dithering. */
   blur: number;
+  /**
+   * Trace at this multiple of the image resolution (bilinear interpolation
+   * turns anti-aliasing into sub-pixel edge positions, which matters most for
+   * text and thin strokes). 0 = automatic: 2x for images up to 1 megapixel.
+   */
+  upscale: number;
 
   mode: ColorMode;
   /** Number of colors for `auto` / `grayscale`. */
@@ -51,6 +57,7 @@ export interface VectorizeOptions {
 export const DEFAULT_OPTIONS: VectorizeOptions = {
   maxSize: 2048,
   blur: 0,
+  upscale: 0,
   mode: 'auto',
   colors: 8,
   palette: ['#000000', '#ffffff'],
@@ -85,6 +92,8 @@ export interface VectorizeResult {
   svg: string;
   width: number;
   height: number;
+  /** Resolution multiple the image was traced at. */
+  scale: number;
   palette: PaletteInfo[];
   /** Number of closed sub-paths in the output. */
   paths: number;

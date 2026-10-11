@@ -43,7 +43,7 @@ const { svg, palette, paths, points } = vectorize({ data, width, height }, { col
 
 Pipeline, in order:
 
-1. **Preprocess** (`image.ts`): optional area-averaging downscale and a premultiplied box blur.
+1. **Preprocess** (`image.ts`): optional area-averaging downscale, a bilinear 2× (or 3×) upscale that turns anti-aliasing into sub-pixel edge positions (automatic for images up to 1 megapixel; this is what keeps text and thin strokes faithful), and a premultiplied box blur.
 2. **Quantize** (`quantize.ts`): k-means++ in CIELAB on a pixel sample, then a memoised nearest-color assignment. Clusters whose color lies between two others *and* whose pixels sit spatially between those colors are anti-aliasing fringes; they are dissolved and their pixels re-assigned.
 3. **Clean up** (`despeckle.ts`): regions smaller than the despeckle size are merged into the color that surrounds them most; optionally the border-connected background is made transparent.
 4. **Layer** (`layers.ts`): for stacked output, connected regions are labelled, each one is dilated by one pixel into the regions painted after it (without ever merging two regions of the same color), and painting order is the scan order of each region's top-left pixel, which guarantees that enclosing shapes come first.
@@ -68,6 +68,7 @@ Pipeline, in order:
 | `blur` | Pre-blur radius in pixels. |
 | `layering` | `stacked` or `cutout`; `strokeWidth` adds a seam-hiding stroke in cutout mode. |
 | `maxSize` | Downscale so the longest side is at most this (0 = original). |
+| `upscale` | Trace at this resolution multiple: 1, 2 or 3; 0 = automatic (2× up to 1 MP). |
 | `precision` | Decimal places in the SVG. |
 
 ## Development

@@ -75,3 +75,50 @@ describe('PathBuilder', () => {
     expect(pb.toString()).toBe('M1 2L3.3-4 5 6Z');
   });
 });
+
+describe('upscale', () => {
+  function aaCircle(w: number, h: number, cx: number, cy: number, r: number) {
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        let cov = 0;
+        for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) if ((x + (sx + 0.5) / 4 - cx) ** 2 + (y + (sy + 0.5) / 4 - cy) ** 2 < r * r) cov++;
+        cov /= 16;
+        const p = (y * w + x) * 4;
+        data[p] = Math.round(255 * (1 - cov));
+        data[p + 1] = Math.round(255 * (1 - cov));
+        data[p + 2] = Math.round(255 * (1 - cov) + 40 * cov);
+        data[p + 3] = 255;
+      }
+    return { data, width: w, height: h };
+  }
+
+  it('keeps the output size and places edges more precisely', () => {
+    const img = aaCircle(60, 60, 30.3, 29.6, 14);
+    const one = vectorize(img, { colors: 2, minArea: 0, simplify: 0, smoothing: 0, precision: 3, upscale: 1 });
+    const two = vectorize(img, { colors: 2, minArea: 0, simplify: 0, smoothing: 0, precision: 3, upscale: 2 });
+    expect(two.width).toBe(60);
+    expect(two.height).toBe(60);
+    expect(two.scale).toBe(2);
+    expect(one.scale).toBe(1);
+    // Polygon vertices of the dark shape: the 2x trace lands on half-pixels.
+    const vertices = (svg: string) => {
+      const d = /fill="#(?![c-f][0-9a-f])[0-9a-f]{6}" d="([^"]+)"/.exec(svg)![1];
+      return (d.match(/-?\d+\.?\d*/g) ?? []).map(Number);
+    };
+    const dev = (svg: string) => {
+      const v = vertices(svg);
+      let max = 0;
+      for (let i = 0; i < v.length; i += 2) max = Math.max(max, Math.abs(Math.hypot(v[i] - 30.3, v[i + 1] - 29.6) - 14));
+      return max;
+    };
+    expect(dev(two.svg)).toBeLessThan(dev(one.svg));
+    expect(dev(two.svg)).toBeLessThan(0.6);
+  });
+
+  it('is automatic for small images only', () => {
+    const img = aaCircle(40, 40, 20, 20, 10);
+    expect(vectorize(img, { colors: 2 }).scale).toBe(2);
+    expect(vectorize(img, { colors: 2, maxSize: 0, upscale: 3 }).scale).toBe(3);
+  });
+});

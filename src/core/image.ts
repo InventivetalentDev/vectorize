@@ -48,6 +48,50 @@ export function downscale(img: RasterImage, maxSize: number): RasterImage {
 }
 
 /**
+ * Bilinear upscale by an integer factor on premultiplied color. Anti-aliased
+ * edges become smooth ramps, so quantising the result places boundaries at
+ * sub-pixel positions instead of snapping them to the original pixel grid.
+ */
+export function upscale(img: RasterImage, factor: number): RasterImage {
+  const f = Math.round(factor);
+  if (f <= 1) return img;
+  const { width: w, height: h, data } = img;
+  const nw = w * f, nh = h * f;
+  const out = new Uint8ClampedArray(nw * nh * 4);
+  // Premultiplied source as floats.
+  const src = new Float32Array(w * h * 4);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    const a = data[p + 3] / 255;
+    src[p] = data[p] * a;
+    src[p + 1] = data[p + 1] * a;
+    src[p + 2] = data[p + 2] * a;
+    src[p + 3] = data[p + 3];
+  }
+  const px = new Float32Array(4);
+  for (let y = 0; y < nh; y++) {
+    const sy = Math.min(Math.max((y + 0.5) / f - 0.5, 0), h - 1);
+    const y0 = Math.floor(sy), y1 = Math.min(y0 + 1, h - 1), fy = sy - y0;
+    for (let x = 0; x < nw; x++) {
+      const sx = Math.min(Math.max((x + 0.5) / f - 0.5, 0), w - 1);
+      const x0 = Math.floor(sx), x1 = Math.min(x0 + 1, w - 1), fx = sx - x0;
+      const p00 = (y0 * w + x0) * 4, p10 = (y0 * w + x1) * 4, p01 = (y1 * w + x0) * 4, p11 = (y1 * w + x1) * 4;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+      for (let c = 0; c < 4; c++) px[c] = src[p00 + c] * w00 + src[p10 + c] * w10 + src[p01 + c] * w01 + src[p11 + c] * w11;
+      const o = (y * nw + x) * 4;
+      const a = px[3];
+      if (a > 0) {
+        const inv = 255 / a;
+        out[o] = px[0] * inv;
+        out[o + 1] = px[1] * inv;
+        out[o + 2] = px[2] * inv;
+      }
+      out[o + 3] = a;
+    }
+  }
+  return { data: out, width: nw, height: nh };
+}
+
+/**
  * Separable box blur (applied twice, i.e. a triangle kernel) on premultiplied
  * color so that transparent areas don't darken edges.
  */
