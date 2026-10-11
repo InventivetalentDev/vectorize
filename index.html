@@ -117,6 +117,15 @@
             <input type="range" min="0" max="3" step="0.1" data-opt="strokeWidth" title="Outline each shape in its own color to hide hairline gaps" />
           </label>
           <label class="row">
+            <span class="label">Trace at <output data-out="upscale"></output></span>
+            <select data-opt="upscale" data-type="number" title="Tracing at 2x turns anti-aliasing into sub-pixel edge positions: sharper text and thin strokes, 4x the work">
+              <option value="0">Auto (2× up to 1 MP)</option>
+              <option value="1">1× (original pixels)</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+            </select>
+          </label>
+          <label class="row">
             <span class="label">Max size <output data-out="maxSize"></output><small> px</small></span>
             <select data-opt="maxSize" data-type="number">
               <option value="512">512</option>

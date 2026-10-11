@@ -1,6 +1,6 @@
 import { toHex, type RGB } from './color';
 import { despeckle, removeBackground } from './despeckle';
-import { blur, downscale, opaqueMask } from './image';
+import { blur, downscale, opaqueMask, upscale } from './image';
 import { dilationLists, labelComponents, labelMask } from './layers';
 import { appendContour, PathBuilder } from './path';
 import { quantize, TRANSPARENT } from './quantize';
@@ -18,8 +18,11 @@ import {
 
 /** Everything the tracing stage needs; produced by {@link prepare}. */
 export interface Prepared {
+  /** Working resolution (already multiplied by `scale`). */
   width: number;
   height: number;
+  /** Resolution multiple relative to the input image. */
+  scale: number;
   /** Palette index per pixel (TRANSPARENT for dropped pixels). */
   index: Uint8Array;
   palette: RGB[];
@@ -31,6 +34,7 @@ export interface Prepared {
 export const PREPARE_KEYS: (keyof VectorizeOptions)[] = [
   'maxSize',
   'blur',
+  'upscale',
   'mode',
   'colors',
   'palette',
@@ -42,6 +46,8 @@ export const PREPARE_KEYS: (keyof VectorizeOptions)[] = [
 ];
 
 const noop: ProgressFn = () => {};
+/** Images up to this many pixels are traced at 2x when `upscale` is automatic. */
+const AUTO_UPSCALE_MAX_PIXELS = 1024 * 1024;
 
 /** Resize, blur, quantize and clean up the image. */
 export function prepare(image: RasterImage, options: Partial<VectorizeOptions> = {}, progress: ProgressFn = noop): Prepared {
@@ -51,7 +57,9 @@ export function prepare(image: RasterImage, options: Partial<VectorizeOptions> =
 
   progress('resize', 0);
   let img = downscale(image, o.maxSize);
-  if (o.blur > 0) img = blur(img, o.blur);
+  const scale = o.upscale > 0 ? Math.round(o.upscale) : img.width * img.height <= AUTO_UPSCALE_MAX_PIXELS ? 2 : 1;
+  if (scale > 1) img = upscale(img, scale);
+  if (o.blur > 0) img = blur(img, o.blur * scale);
   const { width, height } = img;
   timings.preprocess = now() - t;
   t = now();
@@ -81,11 +89,11 @@ export function prepare(image: RasterImage, options: Partial<VectorizeOptions> =
   }
 
   progress('cleanup', 0.3);
-  despeckle(index, width, height, o.minArea);
+  despeckle(index, width, height, o.minArea * scale * scale);
   if (o.removeBackground) removeBackground(index, width, height);
   timings.cleanup = now() - t;
 
-  return { width, height, index, palette: q.palette, info, timings };
+  return { width, height, scale, index, palette: q.palette, info, timings };
 }
 
 interface Shape {
@@ -99,7 +107,7 @@ interface Shape {
 /** Trace a prepared image into SVG. */
 export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, progress: ProgressFn = noop): VectorizeResult {
   const o = { ...DEFAULT_OPTIONS, ...options };
-  const { width, height, index } = prep;
+  const { width, height, index, scale } = prep;
   const n = width * height;
   const t = now();
   const k = prep.palette.length;
@@ -110,13 +118,15 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
   for (let i = 0; i < k; i++) if (counts[i] > 0) colors.push(i);
   colors.sort((a, b) => counts[b] - counts[a] || a - b);
 
-  const style = { smoothing: o.smoothing, cornerThreshold: o.cornerThreshold };
+  // Tolerances are given in input pixels; the engine works in scaled pixels.
+  const style = { smoothing: o.smoothing * scale, cornerThreshold: o.cornerThreshold };
+  const simplify = o.simplify * scale;
   const mask = new Uint8Array(n);
   let paths = 0, points = 0;
   const layers: SvgLayer[] = [];
 
   const emit = (pb: PathBuilder, c: Contour): void => {
-    const poly = polygonize(c.points, o.simplify);
+    const poly = polygonize(c.points, simplify);
     if (poly.count < 3) return;
     const written = appendContour(pb, c.points, poly, style);
     if (written > 0) {
@@ -130,7 +140,7 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
       progress('trace', 0.4 + (0.6 * r) / colors.length);
       const idx = colors[r];
       for (let i = 0; i < n; i++) mask[i] = index[i] === idx ? 1 : 0;
-      const pb = new PathBuilder(o.precision);
+      const pb = new PathBuilder(o.precision, scale);
       for (const c of traceMask(mask, width, height)) emit(pb, c);
       layers.push({ color: hex(prep.palette[idx]), d: pb.toString() });
     }
@@ -205,7 +215,7 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
     for (const s of shapes) {
       if (s.color !== current) {
         if (pb) layers.push({ color: hex(prep.palette[current]), d: pb.toString() });
-        pb = new PathBuilder(o.precision);
+        pb = new PathBuilder(o.precision, scale);
         current = s.color;
       }
       emit(pb!, s.outer);
@@ -214,15 +224,17 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
     if (pb) layers.push({ color: hex(prep.palette[current]), d: pb.toString() });
   }
 
-  const svg = buildSvg(width, height, layers, {
+  const outWidth = Math.round(width / scale), outHeight = Math.round(height / scale);
+  const svg = buildSvg(outWidth, outHeight, layers, {
     strokeWidth: o.layering === 'cutout' ? o.strokeWidth : 0,
     precision: o.precision,
   });
   progress('done', 1);
   return {
     svg,
-    width,
-    height,
+    width: outWidth,
+    height: outHeight,
+    scale,
     palette: prep.info,
     paths,
     points,

@@ -7,10 +7,14 @@ export class PathBuilder {
   private parts: string[] = [];
   private lastCmd = '';
   private endsWithNumber = false;
-  constructor(private precision: number) {}
+  /** @param scale coordinates are divided by this before being written */
+  constructor(
+    private precision: number,
+    private scale = 1,
+  ) {}
 
   private num(v: number): string {
-    let s = v.toFixed(this.precision);
+    let s = (v / this.scale).toFixed(this.precision);
     if (this.precision > 0) s = s.replace(/\.?0+$/, '');
     if (s === '-0') s = '0';
     return s;
