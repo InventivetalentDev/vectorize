@@ -5,7 +5,7 @@ import { traceMask } from '../src/core/trace';
 
 /** Samples an SVG path (M/L/C/Z, absolute) into points. */
 function samplePath(d: string): [number, number][] {
-  const tokens = d.replace(/[MLCZ]/g, ' $& ').trim().split(/\s+/);
+  const tokens = d.match(/[MLCZ]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g) ?? [];
   const pts: [number, number][] = [];
   let i = 0;
   let cur: [number, number] = [0, 0];

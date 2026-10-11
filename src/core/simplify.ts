@@ -16,6 +16,8 @@ export interface Polyline {
   straight: Uint8Array;
   /** 1 when the raw pixels around vertex k consistently cut inside the turn, i.e. the vertex sits on a curve, not on a corner. */
   rounded: Uint8Array;
+  /** Signed bulge (pixels, left normal) of the pixels of the segment leaving vertex k relative to its fitted line. */
+  sagitta: Float64Array;
 }
 
 /**
@@ -32,11 +34,13 @@ const MIN_CORNER_ANGLE = 0.05;
 const BACKTRACK_SLACK = 0.5;
 /** Shortest segment (pixels) that is emitted as a straight line rather than fitted as part of a curve. */
 const MIN_STRAIGHT_LENGTH = 4;
-/** Sagitta (pixels) of the arcs meeting at a vertex above which it counts as rounded, not a corner. */
-const ROUNDED_SIGNAL = 0.4;
-/** Fewest raw vertices / shortest length for a segment's curvature estimate to be trusted. */
-const MIN_SAGITTA_POINTS = 8;
-const MIN_SAGITTA_LENGTH = 6;
+/** Fewest raw edges in a segment for its curvature estimate to mean anything. */
+const MIN_SAGITTA_POINTS = 3;
+/** Inward sagitta (pixels) below which a side shows no curvature. */
+const MIN_CURVATURE_SAGITTA = 0.15;
+/** A turn up to this multiple of the curvature-predicted turn (plus slack) is rounded, not a corner. */
+const ROUNDED_TURN_FACTOR = 1.75;
+const ROUNDED_TURN_SLACK = (10 * Math.PI) / 180;
 /** Bulge (pixels) of a segment's middle relative to its ends above which it is curved rather than straight. */
 const CURVE_SIGNAL = 0.35;
 /** A straight edge must be at least this many times longer than both neighbouring segments. */
@@ -267,23 +271,26 @@ export function polygonize(raw: Polygon, eps: number): Polyline {
         ? 1
         : 0;
   }
-  // The parabola fit is only meaningful with enough pixels behind it.
-  const reliable = new Uint8Array(segCount);
-  for (let k = 0; k < segCount; k++) {
-    reliable[k] = ends[k] - starts[k] + 1 >= MIN_SAGITTA_POINTS && lengths[k] >= MIN_SAGITTA_LENGTH ? 1 : 0;
-  }
+  // A vertex is rounded when its turn is what the curvature measured on both
+  // sides predicts: a chord of length c on an arc with sagitta h subtends
+  // 8h/c radians, so consecutive chords of one arc turn by about
+  // 4(h_p/c_p + h_k/c_k). A corner turns far more than its sides' curvature
+  // accounts for (a straight side contributes nothing).
   const rounded = new Uint8Array(segCount);
   for (let k = 0; k < segCount; k++) {
     const p = (k + segCount - 1) % segCount;
-    if (straight[p] && straight[k]) continue; // two straight edges meet: a corner
-    if (!reliable[p] && !reliable[k]) continue;
+    // A side with too few pixels (e.g. the single flat edge at the top of a
+    // digitised circle) carries no curvature information and counts as flat.
+    const okP = ends[p] - starts[p] >= MIN_SAGITTA_POINTS, okK = ends[k] - starts[k] >= MIN_SAGITTA_POINTS;
+    if (!okP && !okK) continue;
     const cross = lines[p * 4 + 2] * lines[k * 4 + 3] - lines[p * 4 + 3] * lines[k * 4 + 2];
     if (Math.abs(cross) < 1e-6) continue;
-    // On an arc the pixels near a vertex cut inside the turn; the sagitta
-    // measures exactly that (ends relative to the middle, along the normal).
-    const sum = (reliable[p] ? sagitta[p] : 0) + (reliable[k] ? sagitta[k] : 0);
-    const inside = (Math.sign(cross) * sum) / (reliable[p] && reliable[k] ? 2 : 1);
-    if (inside > ROUNDED_SIGNAL) rounded[k] = 1;
+    const sp = okP ? Math.max(0, Math.sign(cross) * sagitta[p]) : 0, sk = okK ? Math.max(0, Math.sign(cross) * sagitta[k]) : 0;
+    if (sp < MIN_CURVATURE_SAGITTA && sk < MIN_CURVATURE_SAGITTA) continue;
+    const predicted = 4 * (sp / Math.max(lengths[p], 1) + sk / Math.max(lengths[k], 1));
+    const dot = lines[p * 4 + 2] * lines[k * 4 + 2] + lines[p * 4 + 3] * lines[k * 4 + 3];
+    const turn = Math.acos(Math.max(-1, Math.min(1, dot)));
+    if (turn <= ROUNDED_TURN_FACTOR * predicted + ROUNDED_TURN_SLACK) rounded[k] = 1;
   }
 
   // Vertices: intersection of consecutive fitted lines.
@@ -320,7 +327,7 @@ export function polygonize(raw: Polygon, eps: number): Polyline {
     dir[k * 2] = bdx;
     dir[k * 2 + 1] = bdy;
   }
-  return { count: segCount, idx, pos, dir, straight, rounded };
+  return { count: segCount, idx, pos, dir, straight, rounded, sagitta };
 }
 
 /** Every raw vertex, unchanged. */
@@ -339,5 +346,5 @@ function trivial(raw: Polygon): Polyline {
     dir[i * 2] = dx / l;
     dir[i * 2 + 1] = dy / l;
   }
-  return { count: n, idx, pos, dir, straight: new Uint8Array(n).fill(1), rounded: new Uint8Array(n) };
+  return { count: n, idx, pos, dir, straight: new Uint8Array(n).fill(1), rounded: new Uint8Array(n), sagitta: new Float64Array(n) };
 }
