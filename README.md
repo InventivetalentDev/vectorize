@@ -28,7 +28,7 @@ The app ships as an assets-only Worker (`wrangler.jsonc` points at `dist/`). Eit
 
 - run `npm run deploy` locally after a one-time `npx wrangler login`, or
 - connect the repository to **Workers Builds** in the Cloudflare dashboard (build command `npm run build`, deploy command `npx wrangler deploy`) so every push to `main` deploys, or
-- add the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and let the included GitHub Actions workflow deploy on push to `main`.
+- add the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; the included GitHub Actions workflow then deploys on every push to `main`.
 
 Keyboard: `O` opens a file, `+`/`-` zoom, `0` fits to window, `1` is 1:1, `Ctrl`/`Cmd`+wheel zooms around the cursor, dragging pans.
 

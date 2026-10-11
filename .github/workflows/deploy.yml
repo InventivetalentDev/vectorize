@@ -1,6 +1,6 @@
 # Deploys the built app to Cloudflare Workers (static assets) on every push to main.
 # Needs the repository secrets CLOUDFLARE_API_TOKEN (Workers Scripts: Edit) and
-# CLOUDFLARE_ACCOUNT_ID; the deploy step is skipped while they are missing.
+# CLOUDFLARE_ACCOUNT_ID.
 # Alternatively connect the repo to Workers Builds in the Cloudflare dashboard
 # (build command `npm run build`, deploy command `npx wrangler deploy`) and
 # delete this file.
@@ -31,4 +31,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The action's default wrangler (3.x) predates wrangler.jsonc support.
+          wranglerVersion: '4'
           command: deploy
