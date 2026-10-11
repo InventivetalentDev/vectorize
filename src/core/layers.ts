@@ -39,45 +39,14 @@ export function labelComponents(index: Uint8Array, w: number, h: number): { labe
   return { labels, count };
 }
 
-/** 8-connected labeling of a binary mask; 0 = unfilled, labels start at 1. */
-export function labelMask(mask: Uint8Array, w: number, h: number, out: Int32Array, stack: Int32Array): number {
-  const n = w * h;
-  out.fill(0);
-  let count = 0;
-  for (let start = 0; start < n; start++) {
-    if (out[start] !== 0 || mask[start] === 0) continue;
-    const label = ++count;
-    let sp = 0;
-    stack[sp++] = start;
-    out[start] = label;
-    while (sp > 0) {
-      const p = stack[--sp];
-      const x = p % w;
-      const y = (p - x) / w;
-      const x0 = x > 0 ? x - 1 : 0, x1 = x < w - 1 ? x + 1 : w - 1;
-      const y0 = y > 0 ? y - 1 : 0, y1 = y < h - 1 ? y + 1 : h - 1;
-      for (let yy = y0; yy <= y1; yy++) {
-        const row = yy * w;
-        for (let xx = x0; xx <= x1; xx++) {
-          const q = row + xx;
-          if (out[q] === 0 && mask[q] !== 0) {
-            out[q] = label;
-            stack[sp++] = q;
-          }
-        }
-      }
-    }
-  }
-  return count;
-}
-
 /**
  * For stacked rendering every shape is painted with an overlap of `radius`
  * pixels into the neighbouring shapes that are painted after it, so neither
  * simplification nor anti-aliasing at small render sizes can open a seam.
  * This computes, per palette index, the list of foreign pixels that its masks
  * should additionally include (CSR layout: `offsets[c]` .. `offsets[c + 1]`
- * into `pixels`).
+ * into `pixels`), with the label of the region each pixel was borrowed for in
+ * `sources`.
  *
  * Borrowing grows outward from each region, breadth first, but never through
  * a region painted before the borrowing one, and a pixel is only borrowed when
@@ -93,10 +62,10 @@ export function dilationLists(
   h: number,
   paletteSize: number,
   radius: number,
-): { offsets: Int32Array; pixels: Int32Array } {
+): { offsets: Int32Array; pixels: Int32Array; sources: Int32Array } {
   const n = w * h;
   const offsets = new Int32Array(paletteSize + 1);
-  if (radius <= 0) return { offsets, pixels: new Int32Array(0) };
+  if (radius <= 0) return { offsets, pixels: new Int32Array(0), sources: new Int32Array(0) };
 
   // Pixels grouped by color (counting sort).
   const byColorOffsets = new Int32Array(paletteSize + 1);
@@ -113,6 +82,7 @@ export function dilationLists(
   let frontier = new Int32Array(n);
   let next = new Int32Array(n);
   const perColor: Int32Array[] = [];
+  const perColorSrc: Int32Array[] = [];
   let total = 0;
 
   for (let c = 0; c < paletteSize; c++) {
@@ -184,13 +154,22 @@ export function dilationLists(
       }
     }
     const kept: number[] = [];
-    for (let i = 0; i < borrowed.length; i++) if (!drop[i]) kept.push(borrowed[i]);
-    const arr = Int32Array.from(kept);
-    perColor.push(arr);
-    total += arr.length;
+    const keptSrc: number[] = [];
+    for (let i = 0; i < borrowed.length; i++) {
+      if (drop[i]) continue;
+      kept.push(borrowed[i]);
+      keptSrc.push(src[borrowed[i]]);
+    }
+    perColor.push(Int32Array.from(kept));
+    perColorSrc.push(Int32Array.from(keptSrc));
+    total += kept.length;
     offsets[c + 1] = total;
   }
   const pixels = new Int32Array(total);
-  for (let c = 0; c < paletteSize; c++) pixels.set(perColor[c], offsets[c]);
-  return { offsets, pixels };
+  const sources = new Int32Array(total);
+  for (let c = 0; c < paletteSize; c++) {
+    pixels.set(perColor[c], offsets[c]);
+    sources.set(perColorSrc[c], offsets[c]);
+  }
+  return { offsets, pixels, sources };
 }
