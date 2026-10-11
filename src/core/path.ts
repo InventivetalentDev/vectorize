@@ -115,24 +115,27 @@ export function appendContour(pb: PathBuilder, raw: Polygon, poly: Polyline, sty
   const breaks: number[] = [];
   for (let i = 0; i < m; i++) if (isCorner[i] || straight[i] || straight[(i + m - 1) % m]) breaks.push(i);
 
-  // Densify: the tracer drops collinear vertices, so long straight edges have
-  // no interior points; without these the fit error would go unmeasured there.
+  // Sample points for the fitter: the midpoints of (sub-)edges rather than
+  // the pixel corners. Corners of a digitised edge zigzag by up to ~0.7px
+  // around the true outline, while edge midpoints lie almost exactly on it.
+  // Long edges are subdivided so the fit error is measured along them too
+  // (the tracer drops collinear vertices, so they have no interior points).
   const densePts: number[] = [];
   const rawToDense = new Int32Array(n + 1);
   for (let i = 0; i < n; i++) {
     rawToDense[i] = densePts.length >> 1;
     const j = (i + 1) % n;
     const x0 = raw[i * 2], y0 = raw[i * 2 + 1], x1 = raw[j * 2], y1 = raw[j * 2 + 1];
-    densePts.push(x0, y0);
-    const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / MAX_STEP);
-    for (let k = 1; k < steps; k++) {
-      const t = k / steps;
+    const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / MAX_STEP));
+    for (let k = 0; k < steps; k++) {
+      const t = (k + 0.5) / steps;
       densePts.push(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
     }
   }
   const nd = densePts.length >> 1;
   rawToDense[n] = nd;
   const dense = Float64Array.from(densePts);
+  // Dense index of the first sample after each polygon vertex.
   const didx = new Int32Array(m);
   for (let k = 0; k < m; k++) didx[k] = rawToDense[idx[k]];
 
@@ -191,7 +194,7 @@ export function appendContour(pb: PathBuilder, raw: Polygon, poly: Polyline, sty
   // a much stricter angle than the user's corner threshold.
   const splitCornerCos = Math.min(cosLimit, Math.cos((SPLIT_CORNER_DEG * Math.PI) / 180));
 
-  const seq = new Float64Array((nd + 1) * 2);
+  const seq = new Float64Array((nd + 2) * 2);
   let seqStart = 0;
   // Segments are buffered so consecutive collinear lines can be merged.
   const out: number[][] = [];
@@ -243,16 +246,17 @@ export function appendContour(pb: PathBuilder, raw: Polygon, poly: Polyline, sty
    */
   let seqOffset = 0;
   const fill = (a: number, b: number, t1x: number, t1y: number, t2x: number, t2y: number): number => {
+    // Samples strictly between the two vertices: seq[1..inner], then the refined endpoints.
     const i0 = didx[a], i1 = didx[b];
-    let count = (i1 - i0 + nd) % nd;
-    if (count === 0) count = nd;
-    for (let i = 0; i <= count; i++) {
+    let inner = (i1 - i0 + nd) % nd;
+    if (inner === 0) inner = nd;
+    for (let i = 0; i < inner; i++) {
       const r = ((i0 + i) % nd) * 2;
-      seq[i * 2] = dense[r];
-      seq[i * 2 + 1] = dense[r + 1];
+      seq[(i + 1) * 2] = dense[r];
+      seq[(i + 1) * 2 + 1] = dense[r + 1];
     }
     const sx = pos[a * 2], sy = pos[a * 2 + 1], ex = pos[b * 2], ey = pos[b * 2 + 1];
-    let from = 1, to = count - 1;
+    let from = 1, to = inner;
     while (from < to && (seq[from * 2] - sx) * t1x + (seq[from * 2 + 1] - sy) * t1y < MIN_ADVANCE) from++;
     while (to > from && (ex - seq[to * 2]) * -t2x + (ey - seq[to * 2 + 1]) * -t2y < MIN_ADVANCE) to--;
     const kept = to - from + 1;
@@ -265,7 +269,8 @@ export function appendContour(pb: PathBuilder, raw: Polygon, poly: Polyline, sty
     seqOffset = from - 1;
     return kept + 2;
   };
-  const tangentAtSeq = (i: number): [number, number] => tangentAtDense((seqStart + seqOffset + i) % nd);
+  // seq[i] (i >= 1) is dense sample seqStart + seqOffset + i - 1.
+  const tangentAtSeq = (i: number): [number, number] => tangentAtDense((seqStart + seqOffset + i - 1 + nd) % nd);
 
   if (breaks.length === 0) {
     // Closed smooth loop: start anywhere with a continuous tangent.

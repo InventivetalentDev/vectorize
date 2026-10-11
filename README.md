@@ -49,7 +49,7 @@ Pipeline, in order:
 4. **Layer** (`layers.ts`): for stacked output, connected regions are labelled, each one is dilated by one pixel into the regions painted after it (without ever merging two regions of the same color), and painting order is the scan order of each region's top-left pixel, which guarantees that enclosing shapes come first.
 5. **Trace** (`trace.ts`): every color mask is turned into closed contours along pixel edges (8-connected regions, holes counter-clockwise), with collinear vertices dropped.
 6. **Polygonize** (`simplify.ts`): contours are split at their four extreme points and recursively at the vertex farthest from the least-squares line of each arc until all pixels sit within the simplification tolerance (on top of the inherent ±0.5 px staircase noise); vertices are placed at the intersections of consecutive fitted lines. Each segment is classified as straight or curved and each vertex as corner or rounded from the pixels themselves.
-7. **Fit** (`fit.ts`, `path.ts`): between corners, cubic Béziers are least-squares fitted to the densified raw contour (Schneider's algorithm) with tangents taken from the polygon, splitting where the error exceeds the smoothing tolerance; straight segments are emitted as lines.
+7. **Fit** (`fit.ts`, `path.ts`): between corners, cubic Béziers are least-squares fitted (Schneider's algorithm) to the midpoints of the contour's pixel edges, which sit on the true outline far more precisely than the pixel corners; tangents come from the polygon, pieces are split where the error exceeds the smoothing tolerance, and straight edges are emitted as lines.
 8. **Write** (`svg.ts`): one `<path>` per color (per run of shapes in stacked mode), compact path data with implicit command repetition.
 
 ## Options
