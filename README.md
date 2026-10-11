@@ -46,7 +46,7 @@ Pipeline, in order:
 1. **Preprocess** (`image.ts`): optional area-averaging downscale, a bilinear 2× (or 3×) upscale that turns anti-aliasing into sub-pixel edge positions (automatic for images up to 1 megapixel; this is what keeps text and thin strokes faithful), and a premultiplied box blur.
 2. **Quantize** (`quantize.ts`): k-means++ in CIELAB on a pixel sample, then a memoised nearest-color assignment. Clusters whose color lies between two others *and* whose pixels sit spatially between those colors are anti-aliasing fringes; they are dissolved and their pixels re-assigned.
 3. **Clean up** (`despeckle.ts`): regions smaller than the despeckle size are merged into the color that surrounds them most; optionally the border-connected background is made transparent.
-4. **Layer** (`layers.ts`): for stacked output, connected regions are labelled, each one is dilated by one pixel into the regions painted after it (without ever merging two regions of the same color), and painting order is the scan order of each region's top-left pixel, which guarantees that enclosing shapes come first.
+4. **Layer** (`layers.ts`): for stacked output, connected regions are labelled, each one is dilated by the overlap distance into the regions painted after it (without ever merging two regions of the same color), and painting order is the scan order of each region's top-left pixel, which guarantees that enclosing shapes come first.
 5. **Trace** (`trace.ts`): every color mask is turned into closed contours along pixel edges (8-connected regions, holes counter-clockwise), with collinear vertices dropped.
 6. **Polygonize** (`simplify.ts`): contours are split at their four extreme points and recursively at the vertex farthest from the least-squares line of each arc until all pixels sit within the simplification tolerance (on top of the inherent ±0.5 px staircase noise); vertices are placed at the intersections of consecutive fitted lines. Each segment is classified as straight or curved and each vertex as corner or rounded from the pixels themselves.
 7. **Fit** (`fit.ts`, `path.ts`): between corners, cubic Béziers are least-squares fitted (Schneider's algorithm) to the midpoints of the contour's pixel edges, which sit on the true outline far more precisely than the pixel corners; tangents come from the polygon, pieces are split where the error exceeds the smoothing tolerance, and straight edges are emitted as lines.
@@ -66,7 +66,8 @@ Pipeline, in order:
 | `smoothing` | Curve-fit tolerance in pixels; 0 outputs straight polygons. |
 | `cornerThreshold` | Turns sharper than this (degrees) are corners, unless the pixels show a rounded shape. |
 | `blur` | Pre-blur radius in pixels. |
-| `layering` | `stacked` or `cutout`; `strokeWidth` adds a seam-hiding stroke in cutout mode. |
+| `layering` | `stacked` or `cutout`; `strokeWidth` adds a seam-hiding, non-scaling stroke in cutout mode. |
+| `overlap` | Stacked mode: how far (input px, default 3) each shape extends under the shapes painted after it. Invisible at 1:1; set it to roughly the downscale factor when the SVG will be rendered much smaller, where renderers otherwise show hairline seams between anti-aliased neighbours. |
 | `maxSize` | Downscale so the longest side is at most this (0 = original). |
 | `upscale` | Trace at this resolution multiple: 1, 2 or 3; 0 = automatic (2× up to 1 MP). |
 | `precision` | Decimal places in the SVG. |

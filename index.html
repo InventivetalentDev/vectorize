@@ -111,6 +111,10 @@
             <label><input type="radio" name="layering" value="cutout" data-opt="layering" /><span>Cutout</span></label>
           </div>
           <p class="help" data-show-layering="stacked">Shapes overlap like paper cut-outs: no seams, fewer points.</p>
+          <label class="row" data-show-layering="stacked">
+            <span class="label">Overlap <output data-out="overlap"></output><small> px</small></span>
+            <input type="range" min="0" max="10" step="1" data-opt="overlap" title="How far each shape extends under the shapes above it. Invisible at full size; raise it if seams appear when the SVG is rendered much smaller." />
+          </label>
           <p class="help" data-show-layering="cutout">Every color is its own exact region (no overlaps): good for cutting and plotting.</p>
           <label class="row" data-show-layering="cutout">
             <span class="label">Seam stroke <output data-out="strokeWidth"></output><small> px</small></span>
