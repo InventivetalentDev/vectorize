@@ -1,0 +1,14 @@
+{
+  // Assets-only Worker: serves the Vite build output as static files.
+  // Deploy with `npm run deploy` (needs `wrangler login` once), or connect the
+  // repository to Workers Builds in the Cloudflare dashboard with
+  // build command `npm run build` and deploy command `npx wrangler deploy`.
+  "name": "vectorize",
+  "compatibility_date": "2026-10-11",
+  "assets": {
+    "directory": "./dist"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

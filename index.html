@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectorize – image to SVG</title>
+    <meta name="description" content="Convert PNG, JPG and other raster images to clean SVG, right in your browser. Free, no upload." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236c8cff'/%3E%3Cpath d='M8 9l8 14 8-14' fill='none' stroke='%23fff' stroke-width='4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#6c8cff"/><path d="M8 9l8 14 8-14" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        <span>Vectorize</span>
+        <span class="tagline">image → SVG, all in your browser</span>
+      </div>
+      <div class="actions">
+        <button id="btn-open" type="button">Open image…</button>
+        <button id="btn-sample" type="button">Try a sample</button>
+        <span class="hint">or drop / paste an image anywhere</span>
+        <span class="spacer"></span>
+        <button id="btn-copy" type="button" disabled>Copy SVG</button>
+        <button id="btn-download" type="button" class="primary" disabled>Download SVG</button>
+      </div>
+    </header>
+
+    <div class="app">
+      <aside class="controls" id="controls">
+        <section>
+          <label class="row">
+            <span class="label">Preset</span>
+            <select id="preset">
+              <option value="">Custom</option>
+              <option value="logo">Logo / flat art</option>
+              <option value="photo">Photo / painting</option>
+              <option value="sketch">Sketch (grayscale)</option>
+              <option value="lineart">Line art (black &amp; white)</option>
+              <option value="pixel">Pixel art (exact)</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
+          <h2>Colors</h2>
+          <div class="segmented" role="radiogroup" aria-label="Color mode">
+            <label><input type="radio" name="mode" value="auto" data-opt="mode" /><span>Auto</span></label>
+            <label><input type="radio" name="mode" value="palette" data-opt="mode" /><span>Custom</span></label>
+            <label><input type="radio" name="mode" value="grayscale" data-opt="mode" /><span>Gray</span></label>
+            <label><input type="radio" name="mode" value="bw" data-opt="mode" /><span>B&amp;W</span></label>
+          </div>
+          <label class="row" data-show-mode="auto grayscale">
+            <span class="label">Colors <output data-out="colors"></output></span>
+            <input type="range" min="2" max="64" step="1" data-opt="colors" />
+          </label>
+          <label class="row" data-show-mode="bw">
+            <span class="label">Threshold <output data-out="threshold"></output></span>
+            <input type="range" min="1" max="254" step="1" data-opt="threshold" />
+          </label>
+          <div class="palette-box">
+            <div class="palette-head">
+              <span class="label" id="palette-title">Palette</span>
+              <span class="palette-tools">
+                <button type="button" class="small" id="btn-palette-edit" data-show-mode="auto grayscale bw" title="Copy the detected colors into an editable custom palette">Edit…</button>
+                <button type="button" class="small" id="btn-palette-add" data-show-mode="palette">+ Add</button>
+                <button type="button" class="small" id="btn-palette-detect" data-show-mode="palette" title="Replace the custom palette with colors detected in the image">From image</button>
+                <button type="button" class="small" id="btn-palette-showall" hidden>Show all</button>
+              </span>
+            </div>
+            <div class="palette" id="palette"></div>
+            <p class="help" data-show-mode="auto grayscale bw">Click a color to leave it out of the SVG.</p>
+          </div>
+          <label class="row check">
+            <input type="checkbox" data-opt="removeBackground" />
+            <span>Remove background <small>(border-connected area of the dominant edge color)</small></span>
+          </label>
+          <label class="row">
+            <span class="label">Alpha cutoff <output data-out="alphaThreshold"></output></span>
+            <input type="range" min="1" max="255" step="1" data-opt="alphaThreshold" title="Pixels more transparent than this are ignored" />
+          </label>
+        </section>
+
+        <section>
+          <h2>Shape</h2>
+          <label class="row">
+            <span class="label">Despeckle <output data-out="minArea"></output><small> px</small></span>
+            <input type="range" min="0" max="100" step="1" data-opt="minArea" title="Regions smaller than this many pixels are merged away" />
+          </label>
+          <label class="row">
+            <span class="label">Simplify <output data-out="simplify"></output><small> px</small></span>
+            <input type="range" min="0" max="5" step="0.1" data-opt="simplify" title="Path simplification tolerance" />
+          </label>
+          <label class="row">
+            <span class="label">Smoothing <output data-out="smoothing"></output><small> px</small></span>
+            <input type="range" min="0" max="3" step="0.1" data-opt="smoothing" title="Curve fitting tolerance; 0 = straight polygons only" />
+          </label>
+          <label class="row">
+            <span class="label">Corner angle <output data-out="cornerThreshold"></output><small>°</small></span>
+            <input type="range" min="0" max="180" step="5" data-opt="cornerThreshold" title="Corners sharper than this stay sharp when smoothing" />
+          </label>
+          <label class="row">
+            <span class="label">Pre-blur <output data-out="blur"></output><small> px</small></span>
+            <input type="range" min="0" max="5" step="1" data-opt="blur" title="Blur before tracing; smooths JPEG noise and dithering" />
+          </label>
+        </section>
+
+        <section>
+          <h2>Output</h2>
+          <div class="segmented" role="radiogroup" aria-label="Layering">
+            <label><input type="radio" name="layering" value="stacked" data-opt="layering" /><span>Stacked</span></label>
+            <label><input type="radio" name="layering" value="cutout" data-opt="layering" /><span>Cutout</span></label>
+          </div>
+          <p class="help" data-show-layering="stacked">Shapes overlap like paper cut-outs: no seams, fewer points.</p>
+          <p class="help" data-show-layering="cutout">Every color is its own exact region (no overlaps): good for cutting and plotting.</p>
+          <label class="row" data-show-layering="cutout">
+            <span class="label">Seam stroke <output data-out="strokeWidth"></output><small> px</small></span>
+            <input type="range" min="0" max="3" step="0.1" data-opt="strokeWidth" title="Outline each shape in its own color to hide hairline gaps" />
+          </label>
+          <label class="row">
+            <span class="label">Max size <output data-out="maxSize"></output><small> px</small></span>
+            <select data-opt="maxSize" data-type="number">
+              <option value="512">512</option>
+              <option value="1024">1024</option>
+              <option value="2048">2048</option>
+              <option value="4096">4096</option>
+              <option value="0">Original</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="label">Precision <output data-out="precision"></output><small> decimals</small></span>
+            <input type="range" min="0" max="3" step="1" data-opt="precision" />
+          </label>
+          <button type="button" id="btn-reset" class="small">Reset all settings</button>
+        </section>
+      </aside>
+
+      <main class="preview">
+        <div class="toolbar">
+          <div class="segmented" role="radiogroup" aria-label="View">
+            <label><input type="radio" name="view" value="vector" checked /><span>Vector</span></label>
+            <label><input type="radio" name="view" value="split" /><span>Split</span></label>
+            <label><input type="radio" name="view" value="original" /><span>Original</span></label>
+          </div>
+          <div class="zoom">
+            <button type="button" id="zoom-out" title="Zoom out">−</button>
+            <button type="button" id="zoom-fit" title="Fit to window">Fit</button>
+            <button type="button" id="zoom-100" title="Actual size">1:1</button>
+            <button type="button" id="zoom-in" title="Zoom in">+</button>
+            <span id="zoom-level" class="mono">100%</span>
+          </div>
+          <div class="status" id="status"></div>
+        </div>
+        <div class="viewport" id="viewport">
+          <div class="stage" id="stage">
+            <img id="img-original" alt="Original image" draggable="false" />
+            <img id="img-vector" alt="Vectorized SVG" draggable="false" />
+            <div class="divider" id="divider" hidden><span></span></div>
+          </div>
+          <div class="empty" id="empty">
+            <div>
+              <h1>Drop an image here</h1>
+              <p>PNG, JPG, WebP, GIF, BMP… Everything happens locally in your browser; nothing is uploaded.</p>
+              <p>
+                <button type="button" id="btn-open-2" class="primary">Open image…</button>
+                <button type="button" id="btn-sample-2">Try a sample</button>
+              </p>
+              <p class="hint">Tip: you can also paste an image from the clipboard.</p>
+            </div>
+          </div>
+        </div>
+        <div class="stats mono" id="stats"></div>
+      </main>
+    </div>
+
+    <input type="file" id="file" accept="image/*" hidden />
+    <div id="drop-overlay" hidden><span>Drop to vectorize</span></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
