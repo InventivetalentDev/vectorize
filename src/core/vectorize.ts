@@ -151,7 +151,7 @@ export function trace(prep: Prepared, options: Partial<VectorizeOptions> = {}, p
     // transparent pixels are kept so transparency survives.
     progress('label', 0.35);
     const { labels } = labelComponents(index, width, height);
-    const dil = dilationLists(index, labels, width, height, k);
+    const dil = dilationLists(index, labels, width, height, k, Math.max(0, Math.round(o.overlap * scale)));
     let hasTransparent = false;
     for (let i = 0; i < n && !hasTransparent; i++) hasTransparent = index[i] === TRANSPARENT;
     const maskLabels = hasTransparent ? new Int32Array(n) : null;

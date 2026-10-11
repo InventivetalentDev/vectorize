@@ -41,6 +41,12 @@ export interface VectorizeOptions {
   minArea: number;
 
   layering: Layering;
+  /**
+   * In `stacked` mode, how far (input pixels) each shape extends under the
+   * shapes painted after it. Invisible at 1:1; raise it when the SVG will be
+   * rendered much smaller, where anti-aliasing would otherwise open seams.
+   */
+  overlap: number;
   /** Path simplification tolerance in pixels (0 = keep every pixel corner). */
   simplify: number;
   /** Curve-fit tolerance in pixels (0 = straight polygons, no curves). */
@@ -67,6 +73,7 @@ export const DEFAULT_OPTIONS: VectorizeOptions = {
   hidden: [],
   minArea: 8,
   layering: 'stacked',
+  overlap: 3,
   simplify: 0.5,
   smoothing: 0.5,
   cornerThreshold: 45,

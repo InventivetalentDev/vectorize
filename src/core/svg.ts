@@ -15,8 +15,10 @@ export function buildSvg(width: number, height: number, layers: SvgLayer[], opts
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`,
   );
   const stroke = opts.strokeWidth && opts.strokeWidth > 0 ? opts.strokeWidth : 0;
+  // The seam stroke keeps its width on screen at any zoom, so it hides
+  // anti-aliasing gaps even when the SVG is rendered much smaller.
   const strokeAttrs = stroke
-    ? ` stroke-width="${formatNumber(stroke, opts.precision ?? 2)}" stroke-linejoin="round"`
+    ? ` stroke-width="${formatNumber(stroke, opts.precision ?? 2)}" stroke-linejoin="round" vector-effect="non-scaling-stroke"`
     : '';
   out.push(`<g fill-rule="evenodd"${strokeAttrs}>`);
   for (const layer of layers) {

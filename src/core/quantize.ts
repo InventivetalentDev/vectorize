@@ -92,12 +92,13 @@ export function quantize(img: RasterImage, opaque: Uint8Array, opts: QuantizeOpt
   // most of their pixels this way were nothing but fringe and are dissolved.
   const originalCounts = counts.slice();
   let pairA: Int32Array<ArrayBufferLike> = new Int32Array(k).fill(-1);
+  let changedPixels: number[] | null = null; // after the first round only their surroundings can change
   for (let round = 0; round < 4; round++) {
-    const found = findFringeClusters(index, img.width, img.height, centroids, k);
+    const found = findFringeClusters(index, img.width, img.height, centroids, k, changedPixels);
     pairA = found.pairA;
     if (found.fringePixels.length === 0) break;
     const lab = new Float32Array(3);
-    let changed = 0;
+    changedPixels = [];
     for (const i of found.fringePixels) {
       const c = index[i];
       const a = found.pairA[c], b = found.pairB[c];
@@ -108,10 +109,10 @@ export function quantize(img: RasterImage, opaque: Uint8Array, opts: QuantizeOpt
       const to = dist2(centroids, a, lab) <= dist2(centroids, b, lab) ? a : b;
       if (to !== c) {
         index[i] = to;
-        changed++;
+        changedPixels.push(i);
       }
     }
-    if (changed === 0) break;
+    if (changedPixels.length === 0) break;
     const again = tally(img, opaque, gray, index, k);
     counts = again.counts;
     sums = again.sums;
@@ -292,6 +293,7 @@ function findFringeClusters(
   h: number,
   centroids: Float32Array,
   k: number,
+  around: number[] | null = null,
 ): { fringePixels: number[]; pairA: Int32Array; pairB: Int32Array } {
   const pairA = new Int32Array(k).fill(-1);
   const pairB = new Int32Array(k).fill(-1);
@@ -345,12 +347,46 @@ function findFringeClusters(
 
   const fringePixels: number[] = [];
   const R = FRINGE_RADIUS;
-  for (let p = 0; p < n; p++) {
+  // Pixels to examine: everything, or only the surroundings of `around`.
+  let candidates: Int32Array | null = null;
+  if (around) {
+    const seen = new Uint8Array(n);
+    const list: number[] = [];
+    for (const p of around) {
+      const x = p % w;
+      const y = (p - x) / w;
+      const x0 = x > R ? x - R : 0, x1 = x < w - 1 - R ? x + R : w - 1;
+      const y0 = y > R ? y - R : 0, y1 = y < h - 1 - R ? y + R : h - 1;
+      for (let yy = y0; yy <= y1; yy++) {
+        for (let xx = x0; xx <= x1; xx++) {
+          const q = yy * w + xx;
+          if (!seen[q]) {
+            seen[q] = 1;
+            list.push(q);
+          }
+        }
+      }
+    }
+    candidates = Int32Array.from(list);
+  }
+  const total = candidates ? candidates.length : n;
+  for (let i = 0; i < total; i++) {
+    const p = candidates ? candidates[i] : i;
     const c = index[p];
     if (c === TRANSPARENT || pairA[c] < 0) continue;
-    const tc = tOf[c * k + c];
     const x = p % w;
     const y = (p - x) / w;
+    // Cheap pre-filter: a pixel with no foreign 4-neighbour is at least two
+    // pixels from any other color; such pixels are reached in a later round
+    // once the band around them has been peeled.
+    if (
+      (x === 0 || index[p - 1] === c) &&
+      (x === w - 1 || index[p + 1] === c) &&
+      (y === 0 || index[p - w] === c) &&
+      (y === h - 1 || index[p + w] === c)
+    )
+      continue;
+    const tc = tOf[c * k + c];
     const x0 = x > R ? x - R : 0, x1 = x < w - 1 - R ? x + R : w - 1;
     const y0 = y > R ? y - R : 0, y1 = y < h - 1 - R ? y + R : h - 1;
     let lo = false, hi = false;
