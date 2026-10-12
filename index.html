@@ -187,6 +187,46 @@
 
     <input type="file" id="file" accept="image/*" hidden />
     <div id="drop-overlay" hidden><span>Drop to vectorize</span></div>
+    <script>
+      // Every deploy renames the hashed script files, so a page cached from an
+      // older deploy points at files that no longer exist and its buttons would
+      // silently do nothing. Module scripts run before DOMContentLoaded, so if
+      // the app has not announced itself by then it failed to load: reload once
+      // (which fetches the current page), otherwise say what went wrong.
+      (function () {
+        var reported = false;
+        function status(text) {
+          var el = document.getElementById('status');
+          if (el) {
+            el.className = 'status error';
+            el.textContent = text;
+          }
+        }
+        window.__vectorizeBoot = 'pending';
+        window.addEventListener('error', function (e) {
+          if (!e.message) return;
+          reported = true;
+          status('Error: ' + e.message);
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          reported = true;
+          status('Error: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
+        });
+        document.addEventListener('DOMContentLoaded', function () {
+          if (window.__vectorizeBoot !== 'pending' || reported) return;
+          try {
+            if (!sessionStorage.getItem('vectorize.reloaded')) {
+              sessionStorage.setItem('vectorize.reloaded', '1');
+              location.reload();
+              return;
+            }
+          } catch (_) {
+            /* storage unavailable: fall through to the message */
+          }
+          status('The app failed to load. Reload the page (Ctrl/Cmd+Shift+R) and check the browser console.');
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
