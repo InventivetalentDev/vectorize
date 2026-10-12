@@ -507,6 +507,9 @@ viewport.addEventListener(
 let drag: { x: number; y: number; sl: number; st: number; split: boolean } | null = null;
 viewport.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
+  // Capturing the pointer redirects the resulting click to the viewport, so
+  // never start a pan on a control (the empty-state buttons live in here).
+  if ((e.target as Element).closest('button, a, input, select, label, .empty')) return;
   const onDivider = divider.contains(e.target as Node);
   drag = { x: e.clientX, y: e.clientY, sl: viewport.scrollLeft, st: viewport.scrollTop, split: onDivider };
   viewport.setPointerCapture(e.pointerId);
