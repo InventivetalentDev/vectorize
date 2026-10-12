@@ -1,0 +1,9 @@
+# Served by Cloudflare Workers static assets. The HTML must always be
+# revalidated because it references hashed asset files that change on every
+# deploy; the hashed assets themselves can be cached forever.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

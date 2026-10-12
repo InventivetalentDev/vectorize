@@ -66,7 +66,15 @@ function loadOptions(): VectorizeOptions {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw) as Partial<VectorizeOptions>;
-      return { ...DEFAULT_OPTIONS, ...saved, hidden: [] };
+      const merged = { ...DEFAULT_OPTIONS, ...saved, hidden: [] };
+      // Only keep saved values of the expected type; anything else falls back.
+      for (const key of Object.keys(DEFAULT_OPTIONS) as (keyof VectorizeOptions)[]) {
+        const def = DEFAULT_OPTIONS[key];
+        const val = merged[key];
+        const ok = Array.isArray(def) ? Array.isArray(val) : typeof val === typeof def && (typeof val !== 'number' || Number.isFinite(val));
+        if (!ok) (merged as unknown as Record<string, unknown>)[key] = def;
+      }
+      return merged;
     }
   } catch {
     /* ignore corrupt storage */
@@ -534,3 +542,10 @@ document.addEventListener('keydown', (e) => {
 // ---------- init ----------
 writeControls();
 setView('vector');
+// Tell the inline boot check in index.html that the app is running.
+(window as unknown as { __vectorizeBoot?: string }).__vectorizeBoot = 'ready';
+try {
+  sessionStorage.removeItem('vectorize.reloaded');
+} catch {
+  /* storage may be unavailable */
+}
